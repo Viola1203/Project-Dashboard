@@ -1,5 +1,5 @@
 /* 项目需求看板 - Service Worker */
-const CACHE = 'kanban-project-v64';
+const CACHE = 'kanban-project-v66';
 const ASSETS = [
   './',
   './index.html',
