@@ -845,9 +845,13 @@ h1{font-size:22px;font-weight:700;line-height:1.3}
 .tbl td strong{font-size:var(--fz-name);font-weight:var(--fw-name);line-height:var(--lh-name)}
 .tbl th.conv-h,.tbl td.conv-sel{width:36px;min-width:36px;text-align:center;padding-left:6px;padding-right:6px}
 .tbl td.conv-sel input{width:16px;height:16px;cursor:pointer;accent-color:var(--teal)}
-.conv-bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:12px;background:#233230;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:92vw}
+.conv-bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;flex-wrap:nowrap;align-items:center;gap:12px;background:#233230;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:96vw}
 .conv-bar[hidden]{display:none}
+.conv-bar .btn{white-space:nowrap;flex:0 0 auto}
+.conv-bar select{flex:0 1 auto;min-width:0}
 .conv-info{font-size:13px;white-space:nowrap}
+.conv-dir{padding:4px 8px;border:1px solid rgba(255,255,255,.28);border-radius:8px;font-size:13px;background:#2c3f3c;color:#fff;max-width:46vw}
+.conv-dir:focus{outline:none;border-color:rgba(255,255,255,.6)}
 .conv-list{margin:6px 0 4px;padding-left:18px;max-height:42vh;overflow:auto}
 .conv-list li{margin:3px 0;font-size:14px;color:var(--ink)}
 .conv-warn{color:#e8a317;font-size:12px;margin-left:6px}
@@ -1777,6 +1781,7 @@ textarea.ed-in{min-height:34px;resize:vertical}
           <button data-mode="quad" data-page-node-id="BHJZw2WFGkTW8sip5fuz07">象限</button>
         </div>
         <button class="btn ghost sm" id="btnTodoDone" title="切换是否显示已完成待办" data-page-node-id="8UiTpJXKo6p1TT4Ef1xYxn" style="margin-left:auto">隐藏已完成</button>
+        <button class="btn ghost sm" id="btnTodoConv" title="勾选待办后转成任务或需求">转换</button>
         <select id="todoQuadFilter" style="width:auto;min-width:118px" data-page-node-id="6ypq2VKikPJSpMxzaWeXHI">
           <option value="" data-page-node-id="aCm0hDzH8rJFpTiiyTdHHJ">全部象限</option>
         </select>
@@ -1858,6 +1863,7 @@ textarea.ed-in{min-height:34px;resize:vertical}
 
 <!-- CONVERSION BAR -->
 <div class="conv-bar" id="convBar" hidden data-page-node-id="OYdrU6org4obWKgodcCWUi">
+  <select class="conv-dir" id="convTargetSel" title="选择要转换到哪一页"></select>
   <span class="conv-info" id="convInfo" data-page-node-id="VoPXWk5848Bjq5A1cI0LLX"></span>
   <button class="btn sm" id="convStart" data-page-node-id="SqbCvIgXLgEqGwMvcxs5eC">开始转换</button>
   <button class="btn ghost sm" id="convCancel" data-page-node-id="ESxC7U8yogEQrhTD07b4m6">取消</button>
@@ -1950,7 +1956,7 @@ textarea.ed-in{min-height:34px;resize:vertical}
 <script>
 "use strict";
 const K="wb_prm_";
-const APP_VER="v3.102";
+const APP_VER="v3.104";
 const LS={
   get(k,d){try{const v=localStorage.getItem(K+k);return v?JSON.parse(v):d;}catch(e){return d;}},
   set(k,v){localStorage.setItem(K+k,JSON.stringify(v));}
@@ -6239,42 +6245,61 @@ function updateEditBar(){
 function emptyHtml(t,btn){return `<div class="empty">${t}<br><button class="btn sm" onclick="document.getElementById('${btn}').click()">新建第一条</button></div>`;}
 
 /* ---------- 需求 ↔ 任务 互转 ---------- */
-let convSel={active:false,kind:null,ids:[]};
+let convSel={active:false,kind:null,target:null,ids:[]};
 let convCache=null;
 let drawerConv=false;
+/* v3.103：三页互转。key=源页，value=可转到的目标页（保持一对一，源条目删除） */
+const CONV_TARGETS={req:['task','todo'],task:['req','todo'],todo:['task','req']};
+function convTargetDefault(kind){return (CONV_TARGETS[kind]||[])[0]||null;}
+function convDirText(kind,target){return (PAGE_CN[kind]||kind)+' → '+(PAGE_CN[target]||target);}
+function convArr(kind){return kind==='req'?reqs:kind==='task'?tasks:todos;}
 function toggleConv(kind){
   if(convSel.active&&convSel.kind===kind){exitConv();return;}
-  const st=kind==='req'?reqState:taskState;
-  if(st.mode!=='table'){
-    st.mode='table';
-    const seg=document.getElementById(kind==='req'?'reqViewSeg':'taskViewSeg');
-    if(seg)[...seg.children].forEach(x=>x.classList.toggle('on',x.dataset.mode==='table'));
-    LS.set('viewmode',{req:reqState.mode,task:taskState.mode});
+  if(kind==='todo'){
+    if(todoState.mode!=='table'){
+      todoState.mode='table';
+      const seg=document.getElementById('todoViewSeg');
+      if(seg)[...seg.children].forEach(x=>x.classList.toggle('on',x.dataset.mode==='table'));
+    }
+  }else{
+    const st=kind==='req'?reqState:taskState;
+    if(st.mode!=='table'){
+      st.mode='table';
+      const seg=document.getElementById(kind==='req'?'reqViewSeg':'taskViewSeg');
+      if(seg)[...seg.children].forEach(x=>x.classList.toggle('on',x.dataset.mode==='table'));
+      LS.set('viewmode',{req:reqState.mode,task:taskState.mode});
+    }
   }
-  convSel={active:true,kind,ids:[]};
-  (kind==='req'?renderReq:renderTask)();
+  convSel={active:true,kind,target:convTargetDefault(kind),ids:[]};
+  if(kind==='req')renderReq();else if(kind==='task')renderTask();else renderTodos();
   updateConvBar();
 }
 function exitConv(){
   const k=convSel.kind;
-  convSel={active:false,kind:null,ids:[]};
+  convSel={active:false,kind:null,target:null,ids:[]};
   const cb=document.getElementById('convBar');if(cb)cb.hidden=true;
-  if(k==='req')renderReq();else if(k==='task')renderTask();
+  if(k==='req')renderReq();else if(k==='task')renderTask();else if(k==='todo')renderTodos();
 }
 function updateConvBar(){
   const bar=document.getElementById('convBar');if(!bar)return;
   if(!convSel.active){bar.hidden=true;return;}
   bar.hidden=false;
-  const dir=convSel.kind==='req'?'需求 → 任务':'任务 → 需求';
-  const info=document.getElementById('convInfo');if(info)info.textContent='转换方向：'+dir+' ｜ 已选 '+convSel.ids.length+' 项（确认后源条目删除）';
+  const sel=document.getElementById('convTargetSel');
+  if(sel){
+    const tg=CONV_TARGETS[convSel.kind]||[];
+    sel.innerHTML=tg.map(t=>'<option value="'+t+'" '+(t===convSel.target?'selected':'')+'>'+esc(convDirText(convSel.kind,t))+'</option>').join('');
+    sel.onchange=()=>{convSel.target=sel.value;updateConvBar();};
+  }
+  const info=document.getElementById('convInfo');
+  if(info)info.textContent='已选 '+convSel.ids.length+' 项（确认后源条目删除）';
 }
 function startConvert(){
   if(!convSel.active||!convSel.ids.length){toast('请先勾选要转换的条目');return;}
-  const kind=convSel.kind, ids=convSel.ids.slice();
-  const arr=kind==='req'?reqs:tasks;
+  const kind=convSel.kind, target=convSel.target, ids=convSel.ids.slice();
+  const arr=convArr(kind);
   if(!ids.some(id=>arr.some(x=>x.id===id))){exitConv();return;}
-  convSel={active:false,kind:null,ids:[]};const cb=document.getElementById('convBar');if(cb)cb.hidden=true;
-  showConvTable(kind,ids);
+  convSel={active:false,kind:null,target:null,ids:[]};const cb=document.getElementById('convBar');if(cb)cb.hidden=true;
+  showConvTable(kind,target,ids);
 }
 function mapReqStatusToTask(s){
   const m={'待评估':'计划中','已排期':'计划中','进行中':'进行中','已上线':'已完成','暂停':'暂停','取消':'已取消'};
@@ -6285,23 +6310,48 @@ function mapTaskStatusToReq(s){
   const m={'计划中':'待评估','进行中':'进行中·开发中','已完成':'已上线','暂停':'暂停','已取消':'取消'};
   return m[s]||'待评估';
 }
-/* 转换=移动：确认后 B 保留、A 删除，故 B 不挂源条目引用（req 留空，避免随 A 消失/悬空） */
+/* 转换=移动：确认后 B 保留、A 删除。
+   需求→任务 时源需求会消失，故 req 留空避免悬空；其余方向在转换表里逐条选所属需求。 */
 function convertReqToTask(r){
   return {name:r.name,req:'',project:r.project||'__none__',platforms:r.platforms||[],
     status:mapReqStatusToTask(r.status),priority:r.priority||'P2',interface:r.interface||[],
-    start:r.planStart||r.start||'',expectEnd:r.expectEnd||'',dependsOn:[],content:r.content||'',cf:r.cf||{},remind:'关闭'};
+    start:r.planStart||r.start||'',expectEnd:r.expectEnd||'',dependsOn:[],content:r.content||'',cf:r.cf||{},remind:'关闭',iu:r.iu||''};
 }
 function convertTaskToReq(t){
   return {name:t.name,content:t.content||'',accept:'',project:t.project||'__none__',platforms:t.platforms||[],
     status:mapTaskStatusToReq(t.status),priority:t.priority||'P2',iu:'',interface:t.interface||[],stake:[],
     planStart:t.start||t.planStart||'',expectEnd:t.expectEnd||'',cf:t.cf||{}};
 }
-function showConvTable(kind,ids){
-  const target=kind==='req'?'task':'req';
-  const arr=kind==='req'?reqs:tasks;
+/* v3.103 待办 → 任务 / 需求：日期只带「预期完成」（todoDue：跨天取终止日 / 多日取末位 / 循环取下一次）；分类 cat 与时间模式不保留 */
+function convertTodoToTask(t){
+  return {name:t.name,req:'',project:'__none__',platforms:t.platforms||[],
+    status:'计划中',priority:'P2',interface:[],iu:t.quad||'',
+    start:'',expectEnd:todoDue(t)||'',dependsOn:[],content:'',cf:t.cf||{},remind:'关闭'};
+}
+function convertTodoToReq(t){
+  return {name:t.name,content:'',accept:'',project:'__none__',platforms:t.platforms||[],
+    status:'待评估',priority:'P2',iu:t.quad||'',interface:[],stake:[],
+    planStart:'',expectEnd:todoDue(t)||'',cf:t.cf||{}};
+}
+/* v3.103 任务 / 需求 → 待办：落到「单日」模式，日期取预期完成（无则计划开始）；重要紧急度沿用 */
+function convToTodoBase(it){
+  const d=it.expectEnd||it.planStart||it.start||'';
+  return {name:it.name,timeMode:'single',date:d,start:'',end:'',dates:[],recur:null,
+    quad:it.iu||2,cat:'',platforms:it.platforms||[],cf:it.cf||{},done:false,doneAt:''};
+}
+function convertTaskToTodo(t){return convToTodoBase(t);}
+function convertReqToTodo(r){return convToTodoBase(r);}
+/* 统一分发：一条对一条，不做拆分 */
+function convertItem(kind,target,it){
+  if(kind==='req')return target==='task'?convertReqToTask(it):convertReqToTodo(it);
+  if(kind==='task')return target==='req'?convertTaskToReq(it):convertTaskToTodo(it);
+  return target==='task'?convertTodoToTask(it):convertTodoToReq(it);
+}
+function showConvTable(kind,target,ids){
+  const arr=convArr(kind);
   const items=ids.map(id=>arr.find(x=>x.id===id)).filter(Boolean);
   if(!items.length){toast('未找到可转换的条目');return;}
-  const convs=items.map(it=> kind==='req'?convertReqToTask(it):convertTaskToReq(it));
+  const convs=items.map(it=>convertItem(kind,target,it));
   convCache={kind,target,items,convs};
   const fields=convFields(target);
   const head='<th class="field-lab">字段</th>'+items.map((it,i)=>`<th><div class="ci-idx">第 ${i+1} 项</div><div class="ci-name">${esc(it.name)}</div></th>`).join('');
@@ -6310,7 +6360,7 @@ function showConvTable(kind,ids){
     const cells=items.map((it,i)=>`<td>${convCell(f,convs[i][f.k],i)}</td>`).join('');
     return '<tr>'+lab+cells+'</tr>';
   }).join('');
-  const dir=kind==='req'?'需求 → 任务':'任务 → 需求';
+  const dir=convDirText(kind,target);
   let h=`<div class="box conv-tbl-box"><div class="mh"><span>批量转换 · ${dir}</span><span class="conv-sub">共 ${items.length} 项 · 确认后源条目删除</span><button class="icon-btn" id="convMax" type="button" title="放大 / 还原">⤢</button></div>`;
   h+=`<div class="conv-tbl-scroll"><table class="conv-tbl"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
   h+=`<div class="mf"><button class="btn ghost" id="convTblCancel" type="button">取消</button><button class="btn primary" id="convTblOk" type="button">确认转换</button></div></div>`;
@@ -6320,6 +6370,13 @@ function showConvTable(kind,ids){
   dlg.querySelector('#convMax').onclick=()=>dlg.querySelector('.box').classList.toggle('max');
 }
 function convFields(target){
+  /* v3.103：目标为待办 → 用待办自己的字段（名称 / 重要紧急度 / 系统平台 / 日期） */
+  if(target==='todo')return [
+    {k:'name',label:'名称',type:'text'},
+    {k:'quad',label:'重要紧急度',type:'quad'},
+    {k:'platforms',label:'系统平台',type:'text'},
+    {k:'date',label:'日期',type:'date'}
+  ];
   const f=[
     {k:'name',label:'名称',type:'text'},
     {k:'project',label:'项目',type:'project'},
@@ -6332,6 +6389,8 @@ function convFields(target){
     {k:'content',label:'内容',type:'textarea'}
   ];
   if(target==='task'){
+    f.push({k:'req',label:'所属需求',type:'req'}); /* v3.103：逐条指定所属需求 */
+    f.push({k:'iu',label:'重要紧急度',type:'text'}); /* v3.103b：继承的 quad 可见可改 */
     f.push({k:'remind',label:'提醒',type:'remind'});
     f.push({k:'dependsOn',label:'前置依赖',type:'text'});
   } else {
@@ -6351,15 +6410,17 @@ function convCell(f,cv,i){
   if(f.type==='priority') return `<select class="cc-in" id="${id}">${priKeys().map(p=>`<option ${v===p?'selected':''}>${esc(p)}</option>`).join('')}</select>`;
   if(f.type==='status') return `<select class="cc-in" id="${id}">${statusSelectOptions(f.kind, v)}</select>`;
   if(f.type==='remind') return `<select class="cc-in" id="${id}"><option value="关闭" ${v!=='开启'?'selected':''}>关闭</option><option value="开启" ${v==='开启'?'selected':''}>开启</option></select>`;
+  if(f.type==='quad') return `<select class="cc-in" id="${id}">${QUADS.map(q=>`<option value="${q.n}" ${+v===q.n?'selected':''}>${esc(q.roman+' '+q.t)}</option>`).join('')}</select>`;
+  if(f.type==='req') return `<select class="cc-in" id="${id}"><option value="" ${!v?'selected':''}>（未挂需求）</option>${reqs.map(r=>`<option value="${r.id}" ${v===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}</select>`;
   return '';
 }
 /* 关闭转换弹窗：同时彻底退出勾选模式（清选择态 + 隐藏底部浮条 + 重渲染两表，移除左侧勾选框列） */
 function closeConvTable(){
   const dlg=document.getElementById('convTblDlg');if(dlg){dlg.classList.remove('show');dlg.innerHTML='';}
   convCache=null;
-  convSel={active:false,kind:null,ids:[]};
+  convSel={active:false,kind:null,target:null,ids:[]};
   const cb=document.getElementById('convBar');if(cb)cb.hidden=true;
-  renderReq();renderTask();
+  renderReq();renderTask();renderTodos();
 }
 function applyConvTable(){
   if(!convCache)return;
@@ -6374,23 +6435,30 @@ function applyConvTable(){
       else if(f.k==='stake'){o.stake=String(val||'').split(/[、,，]/).map(s=>s.trim()).filter(Boolean);}
       else if(f.k==='priority'){o.priority=val||'P2';}
       else if(f.k==='project'){o.project=val||'__none__';}
+      else if(f.k==='quad'){o.quad=+val||2;}
       else {o[f.k]=val;}
     });
-    const full=Object.assign({},o,{id:uid(),history:[{status:o.status,ts:Date.now(),by:'我'}]});
-    if(target==='task')tasks.push(full);else reqs.push(full);
+    if(target==='todo'){
+      Object.assign(o,{id:'td'+uid(),createdAt:todayISO(),doneAt:o.date||''});
+      todos.unshift(o);
+    }else{
+      const full=Object.assign({},o,{id:uid(),history:[{status:o.status,ts:Date.now(),by:'我'}]});
+      if(target==='task')tasks.push(full);else reqs.push(full);
+    }
   });
   // 转换=移动：B 已生成，删除源条目 A（直接移除，不走 delReq/delTask 的确认弹窗与级联逻辑）
   const srcIds=new Set(items.map(x=>x.id));
   if(kind==='req'){ reqs=reqs.filter(x=>!srcIds.has(x.id)); }
-  else{
+  else if(kind==='task'){
     tasks=tasks.filter(x=>!srcIds.has(x.id));
     // 被转换的任务可能是其它任务的前置依赖，顺手清理悬空引用
     tasks.forEach(t=>{if(Array.isArray(t.dependsOn))t.dependsOn=t.dependsOn.filter(d=>!srcIds.has(d));});
   }
+  else { todos=todos.filter(x=>!srcIds.has(x.id)); /* v3.103：待办作源 */ }
   persist();closeConvTable();
-  convSel={active:false,kind:null,ids:[]};
+  convSel={active:false,kind:null,target:null,ids:[]};
   const cb=document.getElementById('convBar');if(cb)cb.hidden=true;
-  renderReq();renderTask();
+  renderReq();renderTask();renderTodos();
   toast('已转换 '+convs.length+' 项（源条目已删除）');
 }
 
@@ -7725,7 +7793,7 @@ function previewImportJson(){
   if(Array.isArray(d)){items=d;kd=null;}
   else{items=d.items;kd=d.kind;}
   if(!Array.isArray(items)){box.innerHTML='<div class="hint-red">JSON 格式不正确：缺少 items 数组</div>';if(cnt)cnt.textContent='';impJsonItems=null;return;}
-  if(kd && kd!==impType){box.innerHTML='<div class="hint-red">类型不匹配：文件为「'+IMP_TITLE[kd]+'」，当前页面是「'+IMP_TITLE[impType]+'」</div>';if(cnt)cnt.textContent='';impJsonItems=null;return;}
+  if(kd && kd!==impType){box.innerHTML='<div class="hint-red">类型不匹配：文件为「'+IMP_TITLE[kd]+'」，当前页面是「'+IMP_TITLE[impType]+'」<br>如果只是想把「'+(PAGE_CN[kd]||kd)+'」的数据搬到「'+(PAGE_CN[impType]||impType)+'」，请到「'+(PAGE_CN[kd]||kd)+'」页用<b>转换</b>功能（勾选条目 → 选转换方向），不用导出导入。</div>';if(cnt)cnt.textContent='';impJsonItems=null;return;}
   impJsonItems=items;
   const n=items.length;
   let snap='';
@@ -8419,11 +8487,14 @@ function renderTodoTable(list,edit){
     }
     return h+'<span class="th-resize" data-resize="'+esc(c.k)+'" title="拖动调整列宽"></span></th>';
   };
-  const headCells='<th class="td-chk">✓</th>'+cols.map(thOne).join('')+'<th data-col="'+COL_LAST+'"><span class="th-lbl">操作</span></th>'; /* 操作列右缘固定对齐容器，无自身手柄 */
+  const convOn=convSel.active&&convSel.kind==='todo';
+  const headCells='<th class="td-chk">'+(convOn?'转':'✓')+'</th>'+cols.map(thOne).join('')+'<th data-col="'+COL_LAST+'"><span class="th-lbl">操作</span></th>'; /* 操作列右缘固定对齐容器，无自身手柄 */
   const colCount=cols.length+2;
   const rows=list.map(t=>{
     const cls=(t.done?'done':'')+(isTodoOverdue(t)?' overdue':'');
-    let body='<td class="td-chk"><input type="checkbox" '+(t.done?'checked':'')+' data-chk="'+t.id+'"></td>';
+    let body=convOn
+      ?'<td class="td-chk conv-sel"><input type="checkbox" class="conv-cb" data-id="'+t.id+'" '+(convSel.ids.indexOf(t.id)>=0?'checked':'')+'></td>'
+      :'<td class="td-chk"><input type="checkbox" '+(t.done?'checked':'')+' data-chk="'+t.id+'"></td>';
     cols.forEach(c=>{
       const lab=esc(colLab(c));
       const edEvt=f=>'onchange="inlineSave(\'todo\',\''+t.id+'\',\''+f+'\',this.value)"';
@@ -8525,6 +8596,7 @@ function renderTodos(){
     });
   }
   box.innerHTML=(todoState.mode==='quad'&&todoField('quad'))?renderTodoQuad(list):renderTodoTable(list,todoEditMode);
+  if(convSel.active&&convSel.kind==='todo')box.querySelectorAll('.conv-cb').forEach(cb=>cb.onchange=()=>{const id=cb.dataset.id;if(cb.checked){if(convSel.ids.indexOf(id)<0)convSel.ids.push(id);}else{convSel.ids=convSel.ids.filter(x=>x!==id);}updateConvBar();});
   applyColWidths('todo');
   box.querySelectorAll('.th-arrow[data-th]').forEach(b=>{
     b.onclick=(e)=>{e.stopPropagation();setTheadSort('todo',b.dataset.th,b.dataset.dir);};
@@ -8676,6 +8748,7 @@ function init(){
   document.getElementById('btnNewTask').onclick=()=>openNewChoice('task',document.getElementById('btnNewTask'));
   document.getElementById('btnReqConv').onclick=()=>toggleConv('req');
   document.getElementById('btnTaskConv').onclick=()=>toggleConv('task');
+  const _btc=document.getElementById('btnTodoConv');if(_btc)_btc.onclick=()=>toggleConv('todo');
   document.getElementById('convStart').onclick=startConvert;
   document.getElementById('convCancel').onclick=exitConv;
   // project buttons
